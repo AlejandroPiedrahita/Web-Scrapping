@@ -1,0 +1,95 @@
+version: '3.8'
+
+# ==============================================================================
+# AutoData ETL Pipeline: Orquestación Multi-Contenedor (Docker Compose)
+# Servicios: Base de Datos PostgreSQL con PL/SQL, API FastAPI, Trabajadores Playwright
+# ==============================================================================
+
+networks:
+  autodata-mesh:
+    driver: bridge
+
+volumes:
+  pgdata_autodata:
+    driver: local
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Motor de Base de Datos PostgreSQL 15 con Inicialización de Esquema y PL/SQL
+  # ----------------------------------------------------------------------------
+  postgres-primary:
+    image: postgres:15-alpine
+    container_name: autodata-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: autodata_admin
+      POSTGRES_PASSWORD: SuperSecurePipelinePassword2025!
+      POSTGRES_DB: autodata_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_autodata:/var/lib/postgresql/data
+      - ./database/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/02_plsql_procedures.sql:/docker-entrypoint-initdb.d/02_plsql_procedures.sql:ro
+    networks:
+      - autodata-mesh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autodata_admin -d autodata_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. Servidor de API FastAPI y Telemetría en Tiempo Real
+  # ----------------------------------------------------------------------------
+  api-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autodata-api
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_USER: autodata_admin
+      DB_PASSWORD: SuperSecurePipelinePassword2025!
+      DB_NAME: autodata_db
+      PLAYWRIGHT_HEADLESS: "true"
+      PLAYWRIGHT_WORKER_CONCURRENCY: 32
+    ports:
+      - "8000:8000"
+    networks:
+      - autodata-mesh
+
+  # ----------------------------------------------------------------------------
+  # 3. Flota de Trabajadores Playwright Asíncronos (Scraper Fleet Worker)
+  # ----------------------------------------------------------------------------
+  scraper-worker-fleet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autodata-playwright-worker
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      api-service:
+        condition: service_started
+    command: ["python", "-m", "app.adapters.scrapers.playwright_scraper"]
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_USER: autodata_admin
+      DB_PASSWORD: SuperSecurePipelinePassword2025!
+      DB_NAME: autodata_db
+      PLAYWRIGHT_HEADLESS: "true"
+      STEALTH_PROFILE_VERSION: "v4.2"
+    networks:
+      - autodata-mesh

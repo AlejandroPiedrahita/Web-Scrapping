@@ -1,0 +1,6 @@
+{
+  "name": "AutoData ETL Pipeline",
+  "description": "Plataforma de ingeniería de datos y orquestación ETL para extracción masiva de vehículos con Playwright, limpieza con Pandas, persistencia en PL/SQL/PostgreSQL y arquitectura limpia Ports & Adapters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
